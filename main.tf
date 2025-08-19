@@ -58,9 +58,9 @@ resource "azurerm_application_gateway" "ag" {
   }
 
   dynamic "probe" {
-    for_each = [
-      for app in local.gateways[count.index].app_configuration : {
-        name = "${app.product}-${app.component}"
+    for_each = {
+      for app in local.gateways[count.index].app_configuration :
+      "${app.product}-${app.component}" => {
         path = lookup(app, "health_path_override", "/health/liveness")
         host_name_include_env = join(".", [
           lookup(app, "host_name_prefix", "${app.product}-${app.component}-${var.env}"),
@@ -77,16 +77,22 @@ resource "azurerm_application_gateway" "ag" {
         ssl_enabled             = contains(keys(app), "ssl_enabled") ? app.ssl_enabled : false
         exclude_env_in_app_name = lookup(local.gateways[count.index].gateway_configuration, "exclude_env_in_app_name", false)
       }
-    ]
+    }
 
     content {
-      interval            = 20
-      name                = probe.value.name
-      host                = probe.value.ssl_enabled ? probe.value.ssl_host_name : probe.value.exclude_env_in_app_name ? probe.value.host_name_exclude_env : probe.value.host_name_include_env
-      path                = probe.value.path
-      protocol            = "Http"
-      timeout             = 15
-      unhealthy_threshold = 3
+      interval                                  = 20
+      name                                      = probe.key
+      host                                      = probe.value.ssl_enabled ? probe.value.ssl_host_name : (probe.value.exclude_env_in_app_name ? probe.value.host_name_exclude_env : probe.value.host_name_include_env)
+      path                                      = probe.value.path
+      protocol                                  = "Http"
+      minimum_servers                           = 0
+      pick_host_name_from_backend_http_settings = false
+      timeout                                   = 15
+      unhealthy_threshold                       = 3
+
+      match {
+        status_code = ["200-399"]
+      }
     }
   }
 
@@ -237,7 +243,7 @@ resource "azurerm_application_gateway" "ag" {
       policy_type          = lookup(var.ssl_policy, "policy_type", "Predefined")
       policy_name          = var.ssl_policy.policy_type == "Predefined" ? var.ssl_policy.policy_name : null
       cipher_suites        = var.ssl_policy.policy_type == "Custom" ? var.ssl_policy.cipher_suites : null
-      min_protocol_version = var.ssl_policy.min_protocol_version
+      min_protocol_version = var.ssl_policy.policy_type == "Custom" ? var.ssl_policy.min_protocol_version : null
     }
   }
 
